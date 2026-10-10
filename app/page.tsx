@@ -529,11 +529,14 @@ export default function LoveHeart() {
 
   return (
     <main className="love-page">
-      <canvas
-        ref={canvasRef}
-        className="love-canvas"
-        aria-label="A heart made of I love you messages in different languages"
-      />
+      <div className="love-content">
+        <h1 className="love-title">For My Yayayyy</h1>
+        <canvas
+          ref={canvasRef}
+          className="love-canvas"
+          aria-label="A heart made of I love you messages in different languages"
+        />
+      </div>
     </main>
   );
 }
