@@ -1,69 +1,446 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useRef } from "react";
+import "./globals.css";
+
+const SC = 21;
+const OY = 20;
+const DURATION = 10_000;
+const TICK = 16;
+const ANIM = 42;
+const LIFT = 34;
+const GAP = 7;
+const SIZES = [9, 10, 11, 12] as const;
+const FONT = "Arial";
+const BG = "#060208";
+
+const PHRASES = [
+  "I love you",
+  "Seni seviyorum",
+  "Te amo",
+  "Je t'aime",
+  "Ich liebe dich",
+  "Ti amo",
+  "Eu te amo",
+  "Я тебя люблю",
+  "사랑해",
+  "愛してる",
+  "我爱你",
+  "मैं तुमसे प्यार करता हूँ",
+  "Σ' αγαπώ",
+  "Ik hou van jou",
+  "Jag älskar dig",
+  "Kocham cię",
+  "ฉันรักเธอ",
+  "Anh yêu em",
+  "Aku cinta kamu",
+  "Я тебе кохаю",
+] as const;
+
+const FLASH: Vec3 = [1, 0.78, 0.78];
+const BGC: Vec3 = [6 / 255, 2 / 255, 8 / 255];
+
+type Vec3 = [number, number, number];
+type Point = [number, number];
+type Span = [number, number];
+
+type PhraseItem = {
+  x: number;
+  y: number;
+  text: string;
+  size: number;
+  width: number;
+  color: Vec3;
+  edge: boolean;
+  rad: number;
+  dx: number;
+  f?: number;
+  shadow?: number;
+  halo?: number;
+  main?: number;
+};
+
+type RandomGenerator = {
+  next: () => number;
+  uniform: (min: number, max: number) => number;
+  choice: <T>(items: readonly T[]) => T;
+  shuffle: <T>(items: T[]) => T[];
+};
+
+function heart(a: number): Point {
+  const x = 16 * Math.sin(a) ** 3;
+  const y =
+    13 * Math.cos(a) -
+    5 * Math.cos(2 * a) -
+    2 * Math.cos(3 * a) -
+    Math.cos(4 * a);
+
+  return [x * SC, y * SC + OY];
+}
+
+function mix(a: Vec3, b: Vec3, k: number): Vec3 {
+  return a.map((v, i) => v + (b[i] - v) * k) as Vec3;
+}
+
+function dim(c: Vec3, k: number): Vec3 {
+  return c.map((v) => v * k) as Vec3;
+}
+
+function hx(c: Vec3): string {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    "#" +
+    c
+      .map((v) =>
+        Math.round(Math.max(0, Math.min(1, v)) * 255)
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("")
+  );
+}
+
+function clamp(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+function createRandom(seed = 11): RandomGenerator {
+  let state = seed >>> 0;
+
+  return {
+    next() {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state / 4294967296;
+    },
+    uniform(min: number, max: number) {
+      return min + this.next() * (max - min);
+    },
+    choice<T>(items: readonly T[]): T {
+      return items[Math.floor(this.next() * items.length)];
+    },
+    shuffle<T>(items: T[]): T[] {
+      for (let i = items.length - 1; i > 0; i--) {
+        const j = Math.floor(this.next() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+      }
+      return items;
+    },
+  };
+}
+
+function mathDist(x: number, y: number, cy: number): number {
+  return Math.hypot(x / (16 * SC), (y - cy) / (14.5 * SC));
+}
+
+function build(ctx: CanvasRenderingContext2D): PhraseItem[] {
+  const rng = createRandom(11);
+  const polygon: Point[] = Array.from({ length: 720 }, (_, i) =>
+    heart((2 * Math.PI * i) / 720),
+  );
+
+  const edges: [Point, Point][] = polygon.map((point, i) => [
+    point,
+    polygon[(i + 1) % polygon.length],
+  ]);
+
+  const ymax = Math.max(...polygon.map((p) => p[1]));
+  const ymin = Math.min(...polygon.map((p) => p[1]));
+  const cy = (ymax + ymin) / 2;
+
+  const font = (size: number) => `bold ${size}px ${FONT}`;
+
+  const rowH =
+    Math.max(
+      ...SIZES.map((size) => {
+        ctx.font = font(size);
+        return size * 1.4;
+      }),
+    ) + 4;
+
+  function spans(y: number): Span[] {
+    const xs: number[] = [];
+
+    for (const [[x1, y1], [x2, y2]] of edges) {
+      if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) {
+        xs.push(x1 + ((y - y1) * (x2 - x1)) / (y2 - y1));
+      }
+    }
+
+    xs.sort((a, b) => a - b);
+
+    const result: Span[] = [];
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      result.push([xs[i], xs[i + 1]]);
+    }
+    return result;
+  }
+
+  function intersect(a: Span[], b: Span[]): Span[] {
+    const out: Span[] = [];
+
+    for (const [a1, a2] of a) {
+      for (const [b1, b2] of b) {
+        const lo = Math.max(a1, b1);
+        const hi = Math.min(a2, b2);
+
+        if (hi - lo > 14) out.push([lo, hi]);
+      }
+    }
+
+    return out;
+  }
+
+  let phraseOrder: string[] = [];
+  let phraseIndex = 0;
+
+  function nextPhrase(): string {
+    if (phraseIndex >= phraseOrder.length) {
+      phraseOrder = rng.shuffle([...PHRASES]);
+      phraseIndex = 0;
+    }
+
+    return phraseOrder[phraseIndex++];
+  }
+
+  const placed: PhraseItem[] = [];
+
+  for (let y = ymax - rowH / 2; y > ymin + rowH / 2; y -= rowH) {
+    const rows = intersect(spans(y + rowH / 2), spans(y - rowH / 2));
+
+    for (const [loRaw, hiRaw] of rows) {
+      const lo = loRaw + 4;
+      const hi = hiRaw - 4;
+      let cur = lo + rng.uniform(0, 8);
+      const line: Array<{
+        x: number;
+        text: string;
+        size: number;
+        width: number;
+      }> = [];
+
+      while (true) {
+        let fit: { text: string; size: number; width: number } | null = null;
+
+        for (let attempt = 0; attempt < 10; attempt++) {
+          const text = nextPhrase();
+          const size = rng.choice(SIZES);
+
+          ctx.font = font(size);
+          const width = ctx.measureText(text).width;
+
+          if (cur + width <= hi) {
+            fit = { text, size, width };
+            break;
+          }
+        }
+
+        if (!fit) break;
+
+        line.push({
+          x: cur + fit.width / 2,
+          text: fit.text,
+          size: fit.size,
+          width: fit.width,
+        });
+
+        cur += fit.width + GAP;
+      }
+
+      if (!line.length) continue;
+
+      if (line.length > 1) {
+        const last = line[line.length - 1];
+        const left = hi - (last.x + last.width / 2);
+
+        line.forEach((item, i) => {
+          item.x += (left * i) / (line.length - 1);
+        });
+      } else {
+        line[0].x = (lo + hi) / 2;
+      }
+
+      line.forEach((item, i) => {
+        const rad = Math.min(1, mathDist(item.x, y, cy));
+        let color = mix([0.58, 0, 0.09], [0.9, 0.05, 0.14], 0.25 + 0.75 * rad);
+
+        color = mix(
+          color,
+          [0.98, 0.1, 0.16],
+          rng.uniform(0, 0.35) + (i === 0 || i === line.length - 1 ? 0.3 : 0),
+        );
+
+        placed.push({
+          x: item.x,
+          y,
+          text: item.text,
+          size: item.size,
+          width: item.width,
+          color: color.map((v) => Math.min(1, v)) as Vec3,
+          edge: i === 0 || i === line.length - 1,
+          rad,
+          dx: rng.uniform(-10, 10),
+          f: 0,
+        });
+      });
+    }
+  }
+
+  const edgeItems = placed.filter((p) => p.edge);
+  const innerItems = placed.filter((p) => !p.edge);
+
+  edgeItems.sort(
+    (a, b) =>
+      ((Math.atan2(a.x, a.y - cy) + Math.PI * 2) % (Math.PI * 2)) -
+      ((Math.atan2(b.x, b.y - cy) + Math.PI * 2) % (Math.PI * 2)),
+  );
+
+  innerItems.sort((a, b) => b.rad - a.rad);
+
+  return [...edgeItems, ...innerItems];
+}
+
+export default function LoveHeart() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    const ctx: CanvasRenderingContext2D = context;
+
+    let animationFrame = 0;
+    let timeoutId: number | undefined;
+    let shimmerTimeoutId: number | undefined;
+    let stopped = false;
+
+    const width = 800;
+    const height = 800;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    const order = build(ctx);
+    const active: PhraseItem[] = [];
+    const revealed: PhraseItem[] = [];
+
+    let nextIndex = 0;
+    let lastTime = 0;
+    let accumulator = 0;
+    let startTime: number | null = null;
+
+    function drawItem(
+      p: PhraseItem,
+      x: number,
+      y: number,
+      fill: string,
+      size = p.size,
+    ) {
+      ctx.font = `bold ${size}px ${FONT}`;
+      ctx.fillStyle = fill;
+      ctx.fillText(p.text, x + width / 2, y + height / 2);
+    }
+
+    function spawn(p: PhraseItem) {
+      p.f = 0;
+      active.push(p);
+    }
+
+    function drawSettled(p: PhraseItem) {
+      const x = p.x;
+      const y = -p.y;
+
+      drawItem(p, x + 2, y + 3, hx(dim(p.color, 0.3)));
+      drawItem(p, x, y, hx(p.color));
+    }
+
+    function animate(p: PhraseItem) {
+      p.f = (p.f ?? 0) + 1;
+
+      const u = clamp((p.f ?? 0) / ANIM);
+      const e = 1 - (1 - u) ** 3;
+      const x = p.x + p.dx * (1 - e);
+      const y = -p.y - (1 - e) * LIFT;
+
+      drawItem(p, x + 2, y + 3, hx(mix(BGC, dim(p.color, 0.3), e)));
+      drawItem(p, x, y, hx(mix(BGC, dim(p.color, 0.2), e * e)), p.size + 1);
+
+      const flash = 0.75 * Math.sin(Math.PI * clamp((u - 0.55) / 0.45));
+      const color = mix(mix(BGC, p.color, e ** 1.5), FLASH, flash);
+
+      drawItem(p, x, y, hx(color));
+
+      if (u >= 1) {
+        p.x = p.x;
+        p.y = p.y;
+        drawSettled(p);
+        return false;
+      }
+
+      return true;
+    }
+
+    function render(time: number) {
+      if (stopped) return;
+
+      if (startTime === null) {
+        startTime = time;
+        lastTime = time;
+      }
+
+      const delta = Math.min(time - lastTime, 50);
+      lastTime = time;
+
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, width, height);
+
+      if (nextIndex < order.length) {
+        accumulator += delta * (order.length / DURATION);
+
+        while (accumulator >= 1 && nextIndex < order.length) {
+          spawn(order[nextIndex]);
+          nextIndex += 1;
+          accumulator -= 1;
+        }
+      }
+
+      for (let i = active.length - 1; i >= 0; i--) {
+        if (!animate(active[i])) {
+          revealed.push(active[i]);
+          active.splice(i, 1);
+        }
+      }
+
+      for (const item of revealed) {
+        drawSettled(item);
+      }
+
+      if (nextIndex < order.length || active.length > 0) {
+        animationFrame = requestAnimationFrame(render);
+      }
+    }
+
+    animationFrame = requestAnimationFrame(render);
+
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(animationFrame);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      if (shimmerTimeoutId !== undefined) window.clearTimeout(shimmerTimeoutId);
+    };
+  }, []);
+
+  return (
+    <main className="love-page">
+      <canvas
+        ref={canvasRef}
+        className="love-canvas"
+        aria-label="A heart made of I love you messages in different languages"
+      />
+    </main>
   );
 }
