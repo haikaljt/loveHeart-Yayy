@@ -12,7 +12,10 @@ const LIFT = 34;
 const GAP = 7;
 const SIZES = [9, 10, 11, 12] as const;
 const FONT = "Arial";
-const BG = "#060208";
+const DEFAULT_TEXT_COLOR = "#fdd7d7";
+const DEFAULT_BG_COLOR = "#060208";
+const FLICKER_COLOR = "#ff4d6d";
+const FLICKER_INTERVAL = 200;
 
 const PHRASES = [
   "I love you",
@@ -37,12 +40,58 @@ const PHRASES = [
   "Я тебе кохаю",
 ] as const;
 
-const FLASH: Vec3 = [1, 0.78, 0.78];
-const BGC: Vec3 = [6 / 255, 2 / 255, 8 / 255];
-
 type Vec3 = [number, number, number];
 type Point = [number, number];
 type Span = [number, number];
+
+function parseCssColor(value: string): Vec3 {
+  const trimmed = value.trim();
+
+  if (trimmed.startsWith("#")) {
+    const raw = trimmed.slice(1);
+    const hex =
+      raw.length === 3
+        ? raw
+            .split("")
+            .map((part) => part + part)
+            .join("")
+        : raw;
+    const number = Number.parseInt(hex, 16);
+
+    return [
+      ((number >> 16) & 255) / 255,
+      ((number >> 8) & 255) / 255,
+      (number & 255) / 255,
+    ];
+  }
+
+  const rgbMatch = trimmed.match(/rgba?\(([^)]+)\)/i);
+  if (rgbMatch) {
+    const channels = rgbMatch[1]
+      .split(",")
+      .map((value) => Number.parseFloat(value.trim()))
+      .slice(0, 3);
+
+    return [channels[0] / 255, channels[1] / 255, channels[2] / 255] as Vec3;
+  }
+
+  return parseCssColor(DEFAULT_TEXT_COLOR);
+}
+
+function cssColor(variable: string, fallback: string): Vec3 {
+  if (typeof window === "undefined") {
+    return parseCssColor(fallback);
+  }
+
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(variable)
+    .trim();
+
+  return value ? parseCssColor(value) : parseCssColor(fallback);
+}
+
+const FLASH_FALLBACK: Vec3 = [1, 0.78, 0.78];
+const BGC_FALLBACK: Vec3 = [6 / 255, 2 / 255, 8 / 255];
 
 type PhraseItem = {
   x: number;
@@ -131,7 +180,11 @@ function mathDist(x: number, y: number, cy: number): number {
   return Math.hypot(x / (16 * SC), (y - cy) / (14.5 * SC));
 }
 
-function build(ctx: CanvasRenderingContext2D): PhraseItem[] {
+function build(
+  ctx: CanvasRenderingContext2D,
+  textColor: Vec3,
+  bgColor: Vec3,
+): PhraseItem[] {
   const rng = createRandom(11);
   const polygon: Point[] = Array.from({ length: 720 }, (_, i) =>
     heart((2 * Math.PI * i) / 720),
@@ -260,11 +313,14 @@ function build(ctx: CanvasRenderingContext2D): PhraseItem[] {
 
       line.forEach((item, i) => {
         const rad = Math.min(1, mathDist(item.x, y, cy));
-        let color = mix([0.58, 0, 0.09], [0.9, 0.05, 0.14], 0.25 + 0.75 * rad);
+        const shadow = mix(dim(textColor, 0.45), bgColor, 0.2);
+        const highlight = mix(textColor, [1, 1, 1], 0.2);
+
+        let color = mix(shadow, textColor, 0.3 + 0.7 * rad);
 
         color = mix(
           color,
-          [0.98, 0.1, 0.16],
+          highlight,
           rng.uniform(0, 0.35) + (i === 0 || i === line.length - 1 ? 0.3 : 0),
         );
 
@@ -308,6 +364,12 @@ export default function LoveHeart() {
     const context = canvas.getContext("2d");
     if (!context) return;
 
+    const textColor = cssColor("--love-text-color", DEFAULT_TEXT_COLOR);
+    const bgColor = cssColor("--love-page-bg", DEFAULT_BG_COLOR);
+    const flashColor = mix(textColor, FLASH_FALLBACK, 0.5);
+    const baseBgColor = mix(bgColor, BGC_FALLBACK, 0.5);
+    const flickerColor = parseCssColor(FLICKER_COLOR);
+
     const ctx: CanvasRenderingContext2D = context;
 
     let animationFrame = 0;
@@ -324,7 +386,7 @@ export default function LoveHeart() {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    const order = build(ctx);
+    const order = build(ctx, textColor, bgColor);
     const active: PhraseItem[] = [];
     const revealed: PhraseItem[] = [];
 
@@ -332,6 +394,9 @@ export default function LoveHeart() {
     let lastTime = 0;
     let accumulator = 0;
     let startTime: number | null = null;
+    let heartComplete = false;
+    let flickerTarget: PhraseItem | null = null;
+    let nextFlickerAt = 0;
 
     function drawItem(
       p: PhraseItem,
@@ -350,12 +415,13 @@ export default function LoveHeart() {
       active.push(p);
     }
 
-    function drawSettled(p: PhraseItem) {
+    function drawSettled(p: PhraseItem, overrideColor?: Vec3) {
       const x = p.x;
       const y = -p.y;
+      const color = overrideColor ?? p.color;
 
-      drawItem(p, x + 2, y + 3, hx(dim(p.color, 0.3)));
-      drawItem(p, x, y, hx(p.color));
+      drawItem(p, x + 2, y + 3, hx(dim(color, 0.3)));
+      drawItem(p, x, y, hx(color));
     }
 
     function animate(p: PhraseItem) {
@@ -366,11 +432,17 @@ export default function LoveHeart() {
       const x = p.x + p.dx * (1 - e);
       const y = -p.y - (1 - e) * LIFT;
 
-      drawItem(p, x + 2, y + 3, hx(mix(BGC, dim(p.color, 0.3), e)));
-      drawItem(p, x, y, hx(mix(BGC, dim(p.color, 0.2), e * e)), p.size + 1);
+      drawItem(p, x + 2, y + 3, hx(mix(baseBgColor, dim(p.color, 0.3), e)));
+      drawItem(
+        p,
+        x,
+        y,
+        hx(mix(baseBgColor, dim(p.color, 0.2), e * e)),
+        p.size + 1,
+      );
 
       const flash = 0.75 * Math.sin(Math.PI * clamp((u - 0.55) / 0.45));
-      const color = mix(mix(BGC, p.color, e ** 1.5), FLASH, flash);
+      const color = mix(mix(baseBgColor, p.color, e ** 1.5), flashColor, flash);
 
       drawItem(p, x, y, hx(color));
 
@@ -395,33 +467,54 @@ export default function LoveHeart() {
       const delta = Math.min(time - lastTime, 50);
       lastTime = time;
 
-      ctx.fillStyle = BG;
+      ctx.fillStyle = hx(baseBgColor);
       ctx.fillRect(0, 0, width, height);
 
-      if (nextIndex < order.length) {
-        accumulator += delta * (order.length / DURATION);
+      if (!heartComplete) {
+        if (nextIndex < order.length) {
+          accumulator += delta * (order.length / DURATION);
 
-        while (accumulator >= 1 && nextIndex < order.length) {
-          spawn(order[nextIndex]);
-          nextIndex += 1;
-          accumulator -= 1;
+          while (accumulator >= 1 && nextIndex < order.length) {
+            spawn(order[nextIndex]);
+            nextIndex += 1;
+            accumulator -= 1;
+          }
+        }
+
+        for (let i = active.length - 1; i >= 0; i--) {
+          if (!animate(active[i])) {
+            revealed.push(active[i]);
+            active.splice(i, 1);
+          }
+        }
+
+        if (nextIndex >= order.length && active.length === 0) {
+          heartComplete = true;
+          nextFlickerAt = time + 250;
         }
       }
 
-      for (let i = active.length - 1; i >= 0; i--) {
-        if (!animate(active[i])) {
-          revealed.push(active[i]);
-          active.splice(i, 1);
+      if (heartComplete) {
+        if (time >= nextFlickerAt) {
+          const candidates = revealed.filter((item) => item !== flickerTarget);
+          const next =
+            candidates[Math.floor(Math.random() * candidates.length)] ??
+            flickerTarget;
+
+          flickerTarget = next;
+          nextFlickerAt = time + FLICKER_INTERVAL;
+        }
+
+        for (const item of revealed) {
+          drawSettled(item, item === flickerTarget ? flickerColor : item.color);
+        }
+      } else {
+        for (const item of revealed) {
+          drawSettled(item);
         }
       }
 
-      for (const item of revealed) {
-        drawSettled(item);
-      }
-
-      if (nextIndex < order.length || active.length > 0) {
-        animationFrame = requestAnimationFrame(render);
-      }
+      animationFrame = requestAnimationFrame(render);
     }
 
     animationFrame = requestAnimationFrame(render);
